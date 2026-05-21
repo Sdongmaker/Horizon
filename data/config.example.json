@@ -1,14 +1,15 @@
 {
   "version": "1.0",
   "ai": {
-    "provider": "openai",
-    "model": "gpt-4",
+    "provider": "28al",
+    "model": "deepseek-v4-flash",
     "api_key_env": "OPENAI_API_KEY",
     "temperature": 0.3,
-    "max_tokens": 4096,
+    "max_tokens": 8192,
     "throttle_sec": 0,
-    "analysis_concurrency": 1,
-    "enrichment_concurrency": 1
+    "analysis_concurrency": 5,
+    "enrichment_concurrency": 5,
+    "languages": ["zh", "en"]
   },
   "email": {
     "enabled": false,
@@ -37,7 +38,7 @@
     ],
     "hackernews": {
       "enabled": true,
-      "fetch_top_stories": 20,
+      "fetch_top_stories": 30,
       "min_score": 100
     },
     "rss": [
@@ -66,14 +67,7 @@
           "min_score": 50
         }
       ],
-      "users": [
-        {
-          "username": "iamthatis",
-          "enabled": true,
-          "sort": "new",
-          "fetch_limit": 10
-        }
-      ],
+      "users": [],
       "fetch_comments": 5
     },
     "twitter": {
@@ -122,37 +116,7 @@
     "layout": "markdown",
     "fallback_layout": "markdown",
     "languages": null,
-    "request_body": {
-      "msg_type": "interactive",
-      "card": {
-        "schema": "2.0",
-        "config": {
-          "wide_screen_mode": true
-        },
-        "header": {
-          "title": {
-            "tag": "plain_text",
-            "content": "#{message_title}"
-          },
-          "template": "blue"
-        },
-        "body": {
-          "elements": [
-            {
-              "tag": "markdown",
-              "content": "Horizon生成结果: #{result}\nHorizon日报重要资讯数量: #{important_items}/#{all_items}"
-            },
-            {
-              "tag": "hr"
-            },
-            {
-              "tag": "markdown",
-              "content": "#{summary}"
-            }
-          ]
-        }
-      }
-    },
+    "request_body": {},
     "headers": ""
   }
 }
