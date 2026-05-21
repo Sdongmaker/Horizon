@@ -39,8 +39,23 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
+            cd /opt/Horizon
+            cat > docker-compose.yml << 'COMPOSE_EOF'
+            version: '3.8'
+
+            services:
+              horizon:
+                image: ${{ secrets.DOCKER_USERNAME }}/horizon:latest
+                container_name: horizon
+                volumes:
+                  - ./data:/app/data
+                  - ./.env:/app/.env:ro
+                environment:
+                  - TZ=UTC
+                restart: unless-stopped
+                command: ["--hours", "24"]
+            COMPOSE_EOF
             docker pull ${{ secrets.DOCKER_USERNAME }}/horizon:latest
-            cd /opt/horizon
             docker compose down
             docker compose up -d
             docker image prune -f
