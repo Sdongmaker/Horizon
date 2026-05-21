@@ -73,6 +73,7 @@ def configure_ai() -> Optional[AIConfig]:
         "doubao": "DOUBAO_API_KEY",
         "minimax": "MINIMAX_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
+        "28al": "OPENAI_API_KEY",
     }
     api_key_env = Prompt.ask(
         "API key environment variable name",

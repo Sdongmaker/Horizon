@@ -51,6 +51,7 @@ class AIProvider(str, Enum):
     MINIMAX = "minimax"
     DEEPSEEK = "deepseek"
     OLLAMA = "ollama"
+    AL28 = "28al"
 
 
 class AIConfig(BaseModel):

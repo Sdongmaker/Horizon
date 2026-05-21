@@ -113,6 +113,7 @@ class OpenAIClient(AIClient):
         "doubao": "https://ark.cn-beijing.volces.com/api/v3",
         "minimax": "https://api.minimax.io/v1",
         "ollama": "http://localhost:11434/v1",
+        "28al": "https://new.28.al/v1",
     }
 
     # Providers that don't support response_format
@@ -462,6 +463,7 @@ def create_ai_client(config: AIConfig) -> AIClient:
         AIProvider.MINIMAX,
         AIProvider.DEEPSEEK,
         AIProvider.OLLAMA,
+        AIProvider.AL28,
     }:
         return OpenAIClient(config)
     else:
