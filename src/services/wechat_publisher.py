@@ -1,0 +1,206 @@
+"""WeChat Official Account publishing service for Horizon daily summaries.
+
+Wraps WeChatClient to provide a high-level publish_daily_summary() method
+that handles the full flow: cover image → HTML conversion → draft → publish.
+"""
+
+import logging
+import os
+from io import BytesIO
+from typing import Optional
+
+from ..models import WeChatPublishConfig
+from .wechat import WeChatClient
+from .wechat_html import markdown_to_wechat_html
+
+logger = logging.getLogger(__name__)
+
+_COVER_WIDTH = 900
+_COVER_HEIGHT = 383
+
+
+class WeChatPublisher:
+    """Publishes Horizon daily summaries to WeChat Official Account.
+
+    Follows the EmailManager / WebhookNotifier pattern: config-driven
+    construction, lazy API client init, soft-fail error handling.
+    """
+
+    def __init__(self, config: WeChatPublishConfig, console=None):
+        self.config = config
+        if console is None:
+            try:
+                from rich.console import Console
+
+                self.console = Console()
+            except ImportError:
+
+                class DummyConsole:
+                    def print(self, *args, **kwargs):
+                        print(*args, **kwargs)
+
+                self.console = DummyConsole()
+        else:
+            self.console = console
+
+        self.appid = os.getenv(config.appid_env)
+        self.secret = os.getenv(config.secret_env)
+        self._client: Optional[WeChatClient] = None
+        self._disabled: bool = False
+
+        if not self.appid or not self.secret:
+            logger.warning(
+                f"WeChat credentials not set ({config.appid_env}, {config.secret_env}). "
+                "WeChat publishing disabled."
+            )
+            self.console.print(
+                f"[yellow]Warning: {config.appid_env} or {config.secret_env} "
+                "not set. WeChat publishing disabled.[/yellow]"
+            )
+            self._disabled = True
+
+    async def _get_client(self) -> WeChatClient:
+        if self._client is not None:
+            return self._client
+        self._client = WeChatClient(self.appid, self.secret)
+        ok = await self._client.test_connection()
+        if not ok:
+            raise RuntimeError("WeChat access_token retrieval failed — check AppID/Secret and IP whitelist")
+        return self._client
+
+    async def publish_daily_summary(
+        self,
+        summary_md: str,
+        date: str,
+        lang: str,
+    ) -> dict:
+        """Full flow: cover upload → HTML conversion → draft → publish → status check.
+
+        Returns a dict with keys: publish_id, msg_data_id, media_id on success,
+        or error on failure.
+        """
+        if self._disabled:
+            return {"error": "WeChat credentials not configured"}
+
+        try:
+            client = await self._get_client()
+        except Exception as e:
+            logger.warning(f"WeChat client init failed: {e}")
+            self.console.print(f"[yellow]⚠️  WeChat client init failed: {e}[/yellow]")
+            return {"error": str(e)}
+
+        lang_label = lang.upper()
+        icon = "📱"
+
+        try:
+            # 1. Upload cover image
+            self.console.print(f"{icon} WeChat ({lang_label}): uploading cover image...")
+            cover_bytes = self._make_cover(date, lang)
+            mat = await client.upload_permanent_image("cover.jpg", cover_bytes)
+            thumb_media_id = mat.get("media_id")
+            if not thumb_media_id:
+                return {"error": f"Cover upload failed: {mat}"}
+            self.console.print(f"{icon} WeChat ({lang_label}): cover uploaded → {thumb_media_id[:20]}...")
+
+            # 2. Convert markdown to WeChat HTML
+            self.console.print(f"{icon} WeChat ({lang_label}): converting markdown to HTML...")
+            content_html = markdown_to_wechat_html(summary_md)
+
+            # 3. Create draft
+            self.console.print(f"{icon} WeChat ({lang_label}): creating draft...")
+            labels = _get_labels(lang)
+            title = f"{labels['header']} - {date}"
+            digest_prefix = labels.get("digest_prefix", "Daily tech brief")
+            digest = f"{digest_prefix} — {date}"
+
+            draft = await client.create_draft(
+                title=title,
+                content=content_html,
+                thumb_media_id=thumb_media_id,
+                author=self.config.author,
+                digest=digest,
+                need_open_comment=self.config.need_open_comment,
+            )
+            media_id = draft.get("media_id")
+            if not media_id:
+                return {"error": f"Draft creation failed: {draft}"}
+            self.console.print(f"{icon} WeChat ({lang_label}): draft created → {media_id[:20]}...")
+
+            # 4. Publish
+            self.console.print(f"{icon} WeChat ({lang_label}): submitting for publish...")
+            pub = await client.publish_draft(media_id)
+            publish_id = pub.get("publish_id")
+            if not publish_id:
+                return {"error": f"Publish failed: {pub}"}
+
+            # 5. Check status
+            status = await client.check_publish_status(str(publish_id))
+            self.console.print(
+                f"[green]✅ WeChat article ({lang_label}) published! "
+                f"publish_id: {publish_id}[/green]\n"
+            )
+            return {"publish_id": publish_id, "media_id": media_id, "status": status}
+
+        except Exception as e:
+            logger.warning(f"WeChat publish ({lang_label}) failed: {e}")
+            self.console.print(f"[yellow]⚠️  WeChat publish ({lang_label}) failed: {e}[/yellow]\n")
+            return {"error": str(e)}
+
+    def _make_cover(self, date: str, lang: str) -> bytes:
+        """Generate a branded cover image, or fall back to solid-color placeholder."""
+        if not self.config.generate_cover:
+            return WeChatClient.generate_cover_image()
+        try:
+            return _generate_branded_cover(date, lang)
+        except Exception:
+            return WeChatClient.generate_cover_image()
+
+
+def _generate_branded_cover(
+    date: str,
+    lang: str,
+    width: int = _COVER_WIDTH,
+    height: int = _COVER_HEIGHT,
+) -> bytes:
+    """Generate a branded cover image with date and language label."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (width, height), color=(26, 58, 107))
+    draw = ImageDraw.Draw(img)
+
+    # Title
+    title = "Horizon Daily" if lang == "en" else "Horizon 每日速递"
+    date_text = date
+
+    try:
+        title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
+        date_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
+    except (OSError, IOError):
+        title_font = ImageFont.load_default()
+        date_font = ImageFont.load_default()
+
+    # Center title
+    title_bbox = draw.textbbox((0, 0), title, font=title_font)
+    tw, th = title_bbox[2] - title_bbox[0], title_bbox[3] - title_bbox[1]
+    draw.text(((width - tw) // 2, (height - th) // 2 - 20), title, fill=(255, 255, 255), font=title_font)
+
+    # Date below
+    date_bbox = draw.textbbox((0, 0), date_text, font=date_font)
+    dw, dh = date_bbox[2] - date_bbox[0], date_bbox[3] - date_bbox[1]
+    draw.text(((width - dw) // 2, (height + th) // 2), date_text, fill=(200, 210, 225), font=date_font)
+
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+def _get_labels(lang: str) -> dict:
+    if lang == "zh":
+        return {
+            "header": "Horizon 每日速递",
+            "digest_prefix": "每日技术资讯速览",
+        }
+    return {
+        "header": "Horizon Daily",
+        "digest_prefix": "Daily tech brief",
+    }

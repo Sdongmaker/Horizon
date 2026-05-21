@@ -12,6 +12,7 @@ from .models import Config, ContentItem
 from .storage.manager import StorageManager
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
+from .services.wechat_publisher import WeChatPublisher
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
 from .scrapers.rss import RSSScraper
@@ -44,6 +45,11 @@ class HorizonOrchestrator:
         self.webhook_notifier = (
             WebhookNotifier(config.webhook, console=self.console)
             if config.webhook and config.webhook.enabled
+            else None
+        )
+        self.wechat_publisher = (
+            WeChatPublisher(config.wechat, console=self.console)
+            if config.wechat and config.wechat.enabled
             else None
         )
 
@@ -188,6 +194,21 @@ class HorizonOrchestrator:
                         lang=lang,
                         summarizer=summarizer,
                     )
+
+                # Publish to WeChat Official Account if configured
+                if self.wechat_publisher:
+                    wechat_langs = self.config.wechat.languages if self.config.wechat else None
+                    if wechat_langs is None or lang in wechat_langs:
+                        try:
+                            await self.wechat_publisher.publish_daily_summary(
+                                summary_md=summary,
+                                date=today,
+                                lang=lang,
+                            )
+                        except Exception as e:
+                            self.console.print(
+                                f"[yellow]⚠️  WeChat publish ({lang.upper()}) failed: {e}[/yellow]\n"
+                            )
 
             self.console.print("[bold green]✅ Horizon completed successfully![/bold green]")
             usage = get_usage_snapshot()

@@ -309,6 +309,18 @@ class EmailConfig(BaseModel):
     enabled: bool = False
 
 
+class WeChatPublishConfig(BaseModel):
+    """WeChat Official Account publishing configuration."""
+
+    enabled: bool = False
+    appid_env: str = "WECHAT_APPID"
+    secret_env: str = "WECHAT_SECRET"
+    author: str = "Horizon Daily"
+    need_open_comment: bool = False
+    generate_cover: bool = True
+    languages: Optional[list[str]] = None
+
+
 class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
@@ -325,3 +337,4 @@ class Config(BaseModel):
     filtering: FilteringConfig
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
+    wechat: Optional[WeChatPublishConfig] = None

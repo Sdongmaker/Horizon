@@ -31,6 +31,9 @@ openbb = [
     "openbb>=4.4.0",
     "openbb-benzinga>=1.6.0",
 ]
+wechat = [
+    "pillow>=10.0.0",
+]
 
 [project.scripts]
 horizon = "src.main:main"
