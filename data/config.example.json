@@ -2,7 +2,7 @@
   "version": "1.0",
   "ai": {
     "provider": "28al",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-v4-pro",
     "api_key_env": "OPENAI_API_KEY",
     "temperature": 0.3,
     "max_tokens": 8192,
