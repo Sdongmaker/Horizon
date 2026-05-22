@@ -164,6 +164,7 @@ class TelegramBot:
         lang: str,
         title: str,
         digest: str,
+        preview: str = "",
     ) -> Optional[int]:
         """Send a Telegram message with [Approve] [Reject] inline buttons.
 
@@ -179,9 +180,15 @@ class TelegramBot:
         text = (
             f"📝 <b>待发布 | {lang_label}</b>\n"
             f"<b>{title}</b>\n"
-            f"{digest}\n\n"
-            f"草稿 ID: <code>{draft_id[:12]}</code>"
+            f"{digest}"
         )
+        if preview:
+            # Truncate to fit Telegram's 4096 char limit, leaving room for buttons/metadata
+            max_preview = 3800 - len(text)
+            if len(preview) > max_preview:
+                preview = preview[:max_preview].rsplit("\n", 1)[0] + "\n..."
+            text += f"\n\n{preview}"
+        text += f"\n\n草稿 ID: <code>{draft_id[:12]}</code>"
 
         keyboard = {
             "inline_keyboard": [

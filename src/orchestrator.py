@@ -242,6 +242,9 @@ class HorizonOrchestrator:
                                 digest_prefix = "每日技术资讯速览" if lang == "zh" else "Daily tech brief"
                                 draft_digest = f"{digest_prefix} — {today}"
 
+                                # Extract article list from summary for approval preview
+                                preview = _extract_toc(summary, lang)
+
                                 draft_id = self.draft_registry.register(
                                     media_id=media_id,
                                     date=today,
@@ -259,6 +262,7 @@ class HorizonOrchestrator:
                                     lang=lang,
                                     title=draft_title,
                                     digest=draft_digest,
+                                    preview=preview,
                                 )
                         except Exception as e:
                             self.console.print(
@@ -685,3 +689,22 @@ class HorizonOrchestrator:
         summarizer = DailySummarizer()
 
         return await summarizer.generate_summary(items, date, total_fetched, language=language)
+
+
+def _extract_toc(summary_md: str, lang: str) -> str:
+    """Extract the TOC (article list) from a Horizon summary.
+
+    The TOC sits between the first two ``---`` horizontal rules.
+    Falls back to the first 600 chars of the summary.
+    """
+    parts = summary_md.split("---")
+    if len(parts) >= 3:
+        toc = parts[1].strip()
+        if toc:
+            # Remove internal markdown links, keep titles
+            import re
+            toc = re.sub(r"\[([^\]]+)\]\(#[^)]+\)", r"\1", toc)
+            return toc
+    # Fallback: first N lines of summary after header
+    lines = [l for l in summary_md.split("\n") if l.strip() and not l.startswith("# ") and not l.startswith("> ")]
+    return "\n".join(lines[:12])
