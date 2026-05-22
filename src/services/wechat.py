@@ -172,7 +172,7 @@ class WeChatClient:
     # ---- cover image helper ----
 
     @staticmethod
-    def generate_cover_image(width: int = 900, height: int = 383) -> bytes:
+    def generate_cover_image(width: int = 900, height: int = 500) -> bytes:
         """Generate a solid-color placeholder cover (2.35:1). Needs `pip install Pillow`."""
         from PIL import Image
 

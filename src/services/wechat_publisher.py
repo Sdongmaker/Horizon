@@ -16,7 +16,7 @@ from .wechat_html import markdown_to_wechat_html
 logger = logging.getLogger(__name__)
 
 _COVER_WIDTH = 900
-_COVER_HEIGHT = 383
+_COVER_HEIGHT = 500
 
 
 class WeChatPublisher:
