@@ -157,7 +157,7 @@ class TelegramBot:
     # Sending
     # ------------------------------------------------------------------
 
-    async def send_approval_message(
+    async def send_draft_notification(
         self,
         draft_id: str,
         date: str,
@@ -166,44 +166,36 @@ class TelegramBot:
         digest: str,
         preview: str = "",
     ) -> Optional[int]:
-        """Send a Telegram message with [Approve] [Reject] inline buttons.
+        """Send a Telegram notification that a WeChat draft has been saved.
+
+        No interactive buttons — the user publishes manually from the WeChat
+        backend (API publish requires a verified account).
 
         Returns the Telegram message_id, or None on failure.
         """
         if not self.bot_token or not self.chat_id:
             self.console.print(
-                "[yellow]⚠️  Telegram bot token or chat_id not set — skip approval message[/yellow]"
+                "[yellow]⚠️  Telegram bot token or chat_id not set — skip draft notification[/yellow]"
             )
             return None
 
         lang_label = lang.upper()
+        label_map = {"ZH": "微信公众平台", "EN": "WeChat Official Account"}
+        backend = label_map.get(lang_label, "WeChat Official Account")
         text = (
-            f"📝 <b>待发布 | {lang_label}</b>\n"
+            f"📝 <b>草稿已保存 | {lang_label}</b>\n"
             f"<b>{title}</b>\n"
             f"{digest}"
         )
         if preview:
-            # Truncate to fit Telegram's 4096 char limit, leaving room for buttons/metadata
-            max_preview = 3800 - len(text)
+            max_preview = 3500 - len(text)
             if len(preview) > max_preview:
                 preview = preview[:max_preview].rsplit("\n", 1)[0] + "\n..."
             text += f"\n\n{preview}"
-        text += f"\n\n草稿 ID: <code>{draft_id[:12]}</code>"
-
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "✅ 发布",
-                        "callback_data": f"publish_{draft_id}",
-                    },
-                    {
-                        "text": "❌ 废弃",
-                        "callback_data": f"reject_{draft_id}",
-                    },
-                ]
-            ]
-        }
+        text += (
+            f"\n\n请前往 <b>{backend}</b> 后台手动发布"
+            f"\n草稿 ID: <code>{draft_id[:12]}</code>"
+        )
 
         try:
             async with httpx.AsyncClient(timeout=self.config.request_timeout) as client:
@@ -213,7 +205,6 @@ class TelegramBot:
                         "chat_id": self.chat_id,
                         "text": text,
                         "parse_mode": "HTML",
-                        "reply_markup": keyboard,
                     },
                 )
                 data = resp.json()

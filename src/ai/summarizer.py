@@ -203,14 +203,18 @@ class DailySummarizer:
             if discussion_url != url:
                 source_line += f' · [{labels["discussion"]}]({discussion_url})'
 
+        image_url = meta.get("image_url") or ""
         lines = [
             f'<a id="item-{index}"></a>',
             f"## [{title}]({url}) \u2b50\ufe0f {score}/10",  # ⭐️
             "",
             summary,
-            "",
-            source_line,
         ]
+        if image_url:
+            lines.append("")
+            lines.append(f'<img src="{image_url}" alt="{title}">')
+        lines.append("")
+        lines.append(source_line)
 
         if background:
             lines.append("")

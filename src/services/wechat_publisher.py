@@ -182,6 +182,7 @@ class WeChatPublisher:
         summary_md: str,
         date: str,
         lang: str,
+        headline: str = "",
     ) -> dict:
         """Full flow: cover upload → HTML conversion → draft → (publish).
 
@@ -218,7 +219,7 @@ class WeChatPublisher:
             # 3. Create draft
             self.console.print(f"{icon} WeChat ({lang_label}): creating draft...")
             labels = _get_labels(lang)
-            title = f"{labels['header']} - {date}"
+            title = headline or f"{labels['header']} - {date}"
             digest_prefix = labels.get("digest_prefix", "Daily tech brief")
             digest = f"{digest_prefix} — {date}"
 
@@ -293,35 +294,106 @@ def _generate_branded_cover(
     width: int = _COVER_WIDTH,
     height: int = _COVER_HEIGHT,
 ) -> bytes:
-    """Generate a branded cover image with date and language label."""
+    """Generate a branded cover with gradient, geometric accents, and modern type."""
     from PIL import Image, ImageDraw, ImageFont
 
-    img = Image.new("RGB", (width, height), color=(26, 58, 107))
+    img = Image.new("RGB", (width, height))
+    # Draw a gradient: deep indigo → vibrant blue-purple
+    for y in range(height):
+        ratio = y / height
+        r = int(15 + (55 - 15) * ratio)
+        g = int(20 + (60 - 20) * ratio)
+        b = int(70 + (140 - 70) * ratio)
+        for x in range(width):
+            img.putpixel((x, y), (r, g, b))
+
     draw = ImageDraw.Draw(img)
+
+    # Decorative geometric circles (subtle, low opacity)
+    for cx, cy, cr, co in [
+        (width - 80, 80, 120, 20),
+        (100, height - 100, 90, 15),
+        (width - 180, height - 60, 60, 12),
+    ]:
+        draw.ellipse(
+            [cx - cr, cy - cr, cx + cr, cy + cr],
+            outline=(255, 255, 255, co),
+            width=2,
+        )
+
+    # Horizontal accent line
+    accent_y = height // 2 + 50
+    draw.line(
+        [(width // 2 - 60, accent_y), (width // 2 + 60, accent_y)],
+        fill=(255, 255, 255, 60),
+        width=1,
+    )
 
     # Title
     title = "Horizon Daily" if lang == "en" else "Horizon 每日速递"
-    date_text = date
 
     try:
-        title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
-        date_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
-    except (OSError, IOError):
+        # Try system fonts first, then common Linux fallbacks
+        title_font = None
+        for font_path in [
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]:
+            try:
+                title_font = ImageFont.truetype(font_path, 52)
+                break
+            except (OSError, IOError):
+                continue
+        if title_font is None:
+            title_font = ImageFont.load_default()
+
+        date_font = None
+        for font_path in [
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans.ttf",
+        ]:
+            try:
+                date_font = ImageFont.truetype(font_path, 26)
+                break
+            except (OSError, IOError):
+                continue
+        if date_font is None:
+            date_font = ImageFont.load_default()
+    except Exception:
         title_font = ImageFont.load_default()
         date_font = ImageFont.load_default()
+
+    # Format date nicely
+    from datetime import datetime
+    try:
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        if lang == "zh":
+            date_text = dt.strftime("%Y 年 %-m 月 %-d 日")
+        else:
+            date_text = dt.strftime("%B %-d, %Y")
+    except ValueError:
+        date_text = date
 
     # Center title
     title_bbox = draw.textbbox((0, 0), title, font=title_font)
     tw, th = title_bbox[2] - title_bbox[0], title_bbox[3] - title_bbox[1]
-    draw.text(((width - tw) // 2, (height - th) // 2 - 20), title, fill=(255, 255, 255), font=title_font)
+    draw.text(
+        ((width - tw) // 2, (height - th) // 2 - 24),
+        title, fill=(255, 255, 255), font=title_font,
+    )
 
     # Date below
     date_bbox = draw.textbbox((0, 0), date_text, font=date_font)
     dw, dh = date_bbox[2] - date_bbox[0], date_bbox[3] - date_bbox[1]
-    draw.text(((width - dw) // 2, (height + th) // 2), date_text, fill=(200, 210, 225), font=date_font)
+    draw.text(
+        ((width - dw) // 2, height // 2 + 54),
+        date_text, fill=(200, 210, 235), font=date_font,
+    )
 
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=90)
+    img.save(buf, format="JPEG", quality=92)
     return buf.getvalue()
 
 

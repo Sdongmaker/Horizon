@@ -94,6 +94,7 @@ class RSSScraper(BaseScraper):
 
                 # Extract content
                 content = self._extract_content(entry)
+                image_url = self._extract_image(entry)
 
                 item = ContentItem(
                     id=self._generate_id("rss", feed_id, entry_hash),
@@ -107,6 +108,7 @@ class RSSScraper(BaseScraper):
                         "feed_name": source.name,
                         "category": source.category,
                         "tags": [tag.term for tag in entry.get("tags", [])],
+                        "image_url": image_url,
                     },
                 )
                 items.append(item)
@@ -161,5 +163,28 @@ class RSSScraper(BaseScraper):
         if "content" in entry and entry.content:
             # content is usually a list
             return entry.content[0].get("value", "")
+
+        return ""
+
+    def _extract_image(self, entry: dict) -> str:
+        """Extract lead image URL from a feed entry."""
+        # media_content (RSS 2.0 with media extensions)
+        media = entry.get("media_content") or []
+        if not isinstance(media, list):
+            media = [media]
+        for m in media:
+            url = m.get("url", "")
+            if url:
+                return url
+
+        # links with image MIME types
+        for link in entry.get("links", []) or []:
+            if "image" in (link.get("type", "") or ""):
+                return link.get("href", "")
+
+        # enclosures
+        for enc in entry.get("enclosures", []) or []:
+            if "image" in (enc.get("type", "") or ""):
+                return enc.get("href", "")
 
         return ""

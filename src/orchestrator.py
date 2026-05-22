@@ -220,10 +220,13 @@ class HorizonOrchestrator:
                     wechat_langs = self.config.wechat.languages if self.config.wechat else None
                     if wechat_langs is None or lang in wechat_langs:
                         try:
+                            headline = await self._generate_headline(important_items, lang)
+
                             result = await self.wechat_publisher.publish_daily_summary(
                                 summary_md=summary,
                                 date=today,
                                 lang=lang,
+                                headline=headline,
                             )
                             if result.get("error"):
                                 self.console.print(
@@ -236,9 +239,8 @@ class HorizonOrchestrator:
                                 and self.telegram_bot
                             ):
                                 media_id = result["media_id"]
-                                labels = {"en": "Horizon Daily", "zh": "Horizon 每日速递"}
-                                lbl = labels.get(lang, "Horizon Daily")
-                                draft_title = f"{lbl} - {today}"
+                                lbl = headline or ({"en": "Horizon Daily", "zh": "Horizon 每日速递"}.get(lang, "Horizon Daily"))
+                                draft_title = lbl if headline else f"{lbl} - {today}"
                                 digest_prefix = "每日技术资讯速览" if lang == "zh" else "Daily tech brief"
                                 draft_digest = f"{digest_prefix} — {today}"
 
@@ -256,7 +258,7 @@ class HorizonOrchestrator:
                                     self.wechat_publisher.appid,
                                     self.wechat_publisher.secret,
                                 )
-                                await self.telegram_bot.send_approval_message(
+                                await self.telegram_bot.send_draft_notification(
                                     draft_id=draft_id,
                                     date=today,
                                     lang=lang,
@@ -334,6 +336,40 @@ class HorizonOrchestrator:
         except asyncio.CancelledError:
             pass
         self.console.print("[dim]👋 Watch mode stopped.[/dim]")
+
+    async def _generate_headline(
+        self, items: list[ContentItem], lang: str
+    ) -> str:
+        """Generate a catchy headline based on top article titles."""
+        titles = []
+        for item in items[:6]:
+            t = item.metadata.get(f"title_{lang}") or item.title
+            titles.append(str(t))
+        top_titles = "\n".join(f"- {t}" for t in titles)
+
+        try:
+            from .ai.prompts import HEADLINE_GENERATION_SYSTEM, HEADLINE_GENERATION_USER
+            from .ai.client import create_ai_client
+
+            client = create_ai_client(self.config.ai)
+            response = await client.complete(
+                system=HEADLINE_GENERATION_SYSTEM,
+                user=HEADLINE_GENERATION_USER.format(
+                    top_titles=top_titles,
+                    lang={"zh": "Simplified Chinese", "en": "English"}.get(lang, "English"),
+                ),
+                temperature=0.9,
+                max_tokens=80,
+            )
+            headline = response.content.strip().strip('"').strip("'").strip()
+            if headline:
+                self.console.print(f"🔥 Headline ({lang.upper()}): {headline}")
+                return headline
+        except Exception as e:
+            self.console.print(f"[yellow]⚠️  Headline generation failed: {e}[/yellow]")
+
+        # Fallback
+        return {"zh": "今日技术速递", "en": "Today's Tech Brief"}.get(lang, "Tech Brief")
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours:
