@@ -59,6 +59,17 @@ class WeChatClient:
             )
             return resp.json()
 
+    async def delete_permanent_material(self, media_id: str) -> dict:
+        """Delete a permanent material by media_id."""
+        token = await self._ensure_token()
+        async with self._client() as client:
+            resp = await client.post(
+                f"{BASE_URL}/material/del_material",
+                params={"access_token": token},
+                json={"media_id": media_id},
+            )
+            return resp.json()
+
     async def upload_content_image(self, file_path: str) -> dict:
         """Upload image for inline article content → returns {"url": "..."}."""
         token = await self._ensure_token()

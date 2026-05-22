@@ -116,9 +116,9 @@ class WeChatPublisher:
             logger.error(f"WeChat self-test: image upload failed - {e}")
             return {"status": "failed", "results": results}
 
-        # 3. Create and delete a test draft
+        # 3. Create a test draft, then clean up both draft and cover image
         try:
-            self.console.print("  [3/4] Creating test draft...")
+            self.console.print("  [3/5] Creating test draft...")
             test_html = markdown_to_wechat_html(
                 "**Horizon 启动自测**\n\n"
                 "这是一条由 Horizon 系统自动生成的测试草稿，用于验证微信公众号 API 连通性。\n\n"
@@ -143,7 +143,7 @@ class WeChatPublisher:
             self.console.print(f"  [green]✓[/green] Test draft created → {media_id}")
 
             # 4. Delete test draft
-            self.console.print("  [4/4] Deleting test draft...")
+            self.console.print("  [4/5] Deleting test draft...")
             del_result = await client.delete_draft(media_id)
             del_errcode = del_result.get("errcode")
             if del_errcode and del_errcode != 0:
@@ -153,6 +153,18 @@ class WeChatPublisher:
             else:
                 self.console.print(f"  [green]✓[/green] Test draft deleted")
                 results["draft_delete"] = "ok"
+
+            # 5. Delete test cover image from permanent materials
+            self.console.print("  [5/5] Deleting test cover image...")
+            del_mat = await client.delete_permanent_material(thumb_media_id)
+            mat_errcode = del_mat.get("errcode")
+            if mat_errcode and mat_errcode != 0:
+                errmsg = del_mat.get("errmsg", str(del_mat))
+                self.console.print(f"  [yellow]⚠[/yellow] Cover image deletion failed: errcode={mat_errcode} errmsg={errmsg}")
+                results["image_delete"] = f"failed: {errmsg}"
+            else:
+                self.console.print(f"  [green]✓[/green] Test cover image deleted")
+                results["image_delete"] = "ok"
 
             results["draft"] = "ok"
         except Exception as e:
