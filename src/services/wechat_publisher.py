@@ -74,9 +74,9 @@ class WeChatPublisher:
         date: str,
         lang: str,
     ) -> dict:
-        """Full flow: cover upload → HTML conversion → draft → publish → status check.
+        """Full flow: cover upload → HTML conversion → draft → (publish).
 
-        Returns a dict with keys: publish_id, msg_data_id, media_id on success,
+        Returns a dict with keys: media_id (always), publish_id on publish mode,
         or error on failure.
         """
         if self._disabled:
@@ -126,20 +126,28 @@ class WeChatPublisher:
                 return {"error": f"Draft creation failed: {draft}"}
             self.console.print(f"{icon} WeChat ({lang_label}): draft created → {media_id[:20]}...")
 
-            # 4. Publish
+            # 4. Draft-only mode: stop here
+            if self.config.publish_mode == "draft":
+                self.console.print(
+                    f"[green]📝 WeChat draft ({lang_label}) saved — "
+                    f"media_id: {media_id}[/green]\n"
+                )
+                return {"mode": "draft", "media_id": media_id}
+
+            # 5. Publish
             self.console.print(f"{icon} WeChat ({lang_label}): submitting for publish...")
             pub = await client.publish_draft(media_id)
             publish_id = pub.get("publish_id")
             if not publish_id:
                 return {"error": f"Publish failed: {pub}"}
 
-            # 5. Check status
+            # 6. Check status
             status = await client.check_publish_status(str(publish_id))
             self.console.print(
                 f"[green]✅ WeChat article ({lang_label}) published! "
                 f"publish_id: {publish_id}[/green]\n"
             )
-            return {"publish_id": publish_id, "media_id": media_id, "status": status}
+            return {"mode": "publish", "publish_id": publish_id, "media_id": media_id, "status": status}
 
         except Exception as e:
             logger.warning(f"WeChat publish ({lang_label}) failed: {e}")

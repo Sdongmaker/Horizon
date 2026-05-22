@@ -319,6 +319,7 @@ class WeChatPublishConfig(BaseModel):
     author: str = "Horizon Daily"
     need_open_comment: bool = False
     generate_cover: bool = True
+    publish_mode: str = "publish"
     languages: Optional[list[str]] = None
 
 
