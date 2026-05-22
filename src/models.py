@@ -304,7 +304,7 @@ class EmailConfig(BaseModel):
     smtp_username: Optional[str] = None
     email_address: str
     password_env: str = "EMAIL_PASSWORD"
-    sender_name: str = "Horizon Daily"
+    sender_name: str = "Today's Briefing"
     subscribe_keyword: str = "SUBSCRIBE"
     unsubscribe_keyword: str = "UNSUBSCRIBE"
     enabled: bool = False
@@ -316,7 +316,7 @@ class WeChatPublishConfig(BaseModel):
     enabled: bool = False
     appid_env: str = "WECHAT_APPID"
     secret_env: str = "WECHAT_SECRET"
-    author: str = "Horizon Daily"
+    author: str = "Today's Briefing"
     need_open_comment: bool = False
     generate_cover: bool = True
     publish_mode: str = "publish"

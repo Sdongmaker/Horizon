@@ -4,10 +4,13 @@ Wraps WeChatClient to provide a high-level publish_daily_summary() method
 that handles the full flow: cover image → HTML conversion → draft → publish.
 """
 
+import asyncio
 import logging
+import mimetypes
 import os
 from io import BytesIO
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -20,6 +23,51 @@ logger = logging.getLogger(__name__)
 
 _COVER_WIDTH = 900
 _COVER_HEIGHT = 500
+
+# Magic bytes for common image formats
+_IMAGE_SIGNATURES: dict[bytes, str] = {
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"GIF87a": "image/gif",
+    b"GIF89a": "image/gif",
+    b"RIFF": "image/webp",  # WebP starts with RIFF...WEBP
+    b"\x00\x00\x01\x00": "image/x-icon",
+}
+
+
+def _validate_image_url(url: str) -> bool:
+    """Return True if *url* looks like a safe external image (https, not local)."""
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    # Block loopback / private networks
+    if host in ("127.0.0.1", "localhost", "::1") or host.endswith(".local"):
+        return False
+    return True
+
+
+def _detect_content_type(data: bytes, filename: str = "") -> str:
+    """Best-effort content-type detection using magic bytes + filename extension."""
+    # 1. Check magic bytes
+    for sig, ctype in _IMAGE_SIGNATURES.items():
+        if data[: len(sig)] == sig:
+            return ctype
+    # WebP second check (RIFF....WEBP)
+    if data[:4] == b"RIFF" and b"WEBP" in data[:12]:
+        return "image/webp"
+    # 2. Fall back to filename extension
+    if filename:
+        guessed, _ = mimetypes.guess_type(filename)
+        if guessed and guessed.startswith("image/"):
+            return guessed
+    # 3. Default
+    return "image/jpeg"
 
 
 class WeChatPublisher:
@@ -210,13 +258,17 @@ class WeChatPublisher:
             # 1. Upload cover image (use source image if available)
             self.console.print(f"{icon} WeChat ({lang_label}): uploading cover image...")
             cover_bytes = None
-            if cover_image_url:
+            if _validate_image_url(cover_image_url):
                 try:
                     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as dl_client:
                         resp = await dl_client.get(cover_image_url)
                         resp.raise_for_status()
+                        ct = resp.headers.get("content-type", "")
                         data = resp.content
-                        if len(data) <= 2 * 1024 * 1024:
+                        if (
+                            len(data) <= 2 * 1024 * 1024
+                            and (ct.startswith("image/") or _detect_content_type(data).startswith("image/"))
+                        ):
                             cover_bytes = data
                 except Exception as e:
                     logger.warning("Failed to download cover image from %s: %s", cover_image_url[:80], e)
@@ -303,7 +355,7 @@ class WeChatPublisher:
         """Download external images and re-upload to WeChat CDN.
 
         Finds all <img> tags with external (non-mmbiz.qpic.cn) src URLs,
-        downloads each image, uploads to WeChat via uploadimg API,
+        downloads each image, validates it, uploads to WeChat via uploadimg API,
         and replaces the src with the returned WeChat CDN URL.
 
         Failures are logged but do not block publishing.
@@ -317,14 +369,20 @@ class WeChatPublisher:
         replacements = 0
 
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as dl_client:
-            for img in imgs:
-                src = img.get("src", "")
+
+            async def _process_one(img_tag):
+                nonlocal replacements
+                src = img_tag.get("src", "")
                 if not src or "mmbiz.qpic.cn" in src:
-                    continue
+                    return
+                if not _validate_image_url(src):
+                    logger.warning("Skipping non-https or private image URL: %s", src[:100])
+                    return
 
                 try:
                     resp = await dl_client.get(src)
                     resp.raise_for_status()
+                    ct = resp.headers.get("content-type", "")
                     data = resp.content
 
                     if len(data) > 2 * 1024 * 1024:
@@ -332,10 +390,15 @@ class WeChatPublisher:
                             "Image too large for WeChat uploadimg (%d bytes), skipping: %s",
                             len(data), src[:100],
                         )
-                        continue
+                        return
+
+                    detected_ct = _detect_content_type(data)
+                    if not ct.startswith("image/") and not detected_ct.startswith("image/"):
+                        logger.warning("URL does not serve an image (content-type=%s), skipping: %s", ct, src[:100])
+                        return
 
                     filename = src.rsplit("/", 1)[-1].split("?")[0] or "image.jpg"
-                    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
                         filename += ".jpg"
 
                     result = await client.upload_content_image(data=data, filename=filename)
@@ -343,14 +406,15 @@ class WeChatPublisher:
                     if not new_url:
                         errcode = result.get("errcode", "?")
                         logger.warning("WeChat uploadimg failed (errcode=%s) for %s", errcode, src[:100])
-                        continue
+                        return
 
-                    img["src"] = new_url
+                    img_tag["src"] = new_url
                     replacements += 1
 
                 except Exception as e:
                     logger.warning("Image re-host failed for %s: %s", src[:100], e)
-                    continue
+
+            await asyncio.gather(*[_process_one(img) for img in imgs])
 
         if replacements:
             self.console.print(f"{icon} WeChat ({lang_label}): re-hosted {replacements}/{len(imgs)} images to CDN")
@@ -410,7 +474,7 @@ def _generate_branded_cover(
     )
 
     # Title
-    title = "Daily Brief" if lang == "en" else "每日速递"
+    title = "Today's Briefing" if lang == "en" else "今日快讯"
 
     try:
         # Try system fonts first, then common Linux fallbacks
@@ -480,10 +544,10 @@ def _generate_branded_cover(
 def _get_labels(lang: str) -> dict:
     if lang == "zh":
         return {
-            "header": "每日速递",
+            "header": "今日快讯",
             "digest_prefix": "每日技术资讯速览",
         }
     return {
-        "header": "Daily Brief",
+        "header": "Today's Briefing",
         "digest_prefix": "Daily tech brief",
     }

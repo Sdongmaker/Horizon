@@ -182,7 +182,7 @@ Style guidelines:
 - Never fabricate facts — only reference items actually in the list
 - Keep titles under 40 characters for Chinese, under 80 chars for English
 
-Bad (boring): "Horizon 每日速递 - 2026-05-22"
+Bad (boring): "今日快讯 - 2026-05-22"
 Good (engaging): "GPT-5 杀疯了！今天这 6 条 AI 新闻不容错过" """
 
 HEADLINE_GENERATION_USER = """Write a catchy newsletter title for today's tech briefing. Base it on the top stories below.

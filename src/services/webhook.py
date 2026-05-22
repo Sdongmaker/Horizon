@@ -398,7 +398,7 @@ class WebhookNotifier:
         headline: str = "",
     ) -> str:
         """Build a non-redundant overview for a card that already lists item panels."""
-        title = headline or (f"Horizon 每日速递 - {date}" if lang == "zh" else f"Horizon Daily - {date}")
+        title = headline or (f"今日快讯 - {date}" if lang == "zh" else f"Today's Briefing - {date}")
         if lang == "zh":
             if item_count == 0:
                 return (

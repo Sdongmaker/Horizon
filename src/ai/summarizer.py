@@ -1,5 +1,6 @@
 """Daily summary generation — pure programmatic rendering."""
 
+import html
 import re
 from typing import List, Dict
 
@@ -19,7 +20,7 @@ def _pangu(text: str) -> str:
 
 LABELS = {
     "en": {
-        "header": "Daily Brief",
+        "header": "Today's Briefing",
         "source": "Source",
         "background": "Background",
         "discussion": "Discussion",
@@ -37,7 +38,7 @@ LABELS = {
         ),
     },
     "zh": {
-        "header": "每日速递",
+        "header": "今日快讯",
         "source": "来源",
         "background": "背景",
         "discussion": "社区讨论",
@@ -118,21 +119,23 @@ class DailySummarizer:
         date: str,
         total_fetched: int,
         language: str = "en",
+        headline: str = "",
     ) -> str:
         """Generate a compact overview for multi-message webhook delivery."""
         labels = LABELS.get(language, LABELS["en"])
         if not items:
             return self._generate_empty_summary(date, total_fetched, labels)
 
+        header_text = headline or f"{labels['header']} - {date}"
         if language == "zh":
             header = (
-                f"# {labels['header']} - {date}\n\n"
+                f"# {header_text}\n\n"
                 f"> 从 {total_fetched} 条内容中筛选出 {len(items)} 条重要资讯。\n\n"
                 "下面会按新闻逐条发送详情，你可以只看感兴趣的标题。\n\n"
             )
         else:
             header = (
-                f"# {labels['header']} - {date}\n\n"
+                f"# {header_text}\n\n"
                 f"> Selected {len(items)} important items from {total_fetched} fetched items.\n\n"
                 "Details will be sent item by item so you can read only the topics you care about.\n\n"
             )
@@ -215,7 +218,7 @@ class DailySummarizer:
         ]
         if image_url:
             lines.append("")
-            lines.append(f'<img src="{image_url}" alt="{title}">')
+            lines.append(f'<img src="{html.escape(image_url)}" alt="{html.escape(title)}">')
         lines.append("")
         lines.append(source_line)
 

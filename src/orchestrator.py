@@ -222,12 +222,19 @@ class HorizonOrchestrator:
                     wechat_langs = self.config.wechat.languages if self.config.wechat else None
                     if wechat_langs is None or lang in wechat_langs:
                         try:
-                            # Use first available source image as cover
+                            # Select best available source image as cover
+                            # Prefer high-quality hosts (i.redd.it, pbs.twimg.com, i.imgur.com)
                             cover_image_url = ""
                             for item in important_items:
-                                if item.metadata.get("image_url"):
-                                    cover_image_url = item.metadata["image_url"]
+                                url = item.metadata.get("image_url", "")
+                                if not url:
+                                    continue
+                                host = urlparse(url).hostname or ""
+                                if any(h in host for h in ("i.redd.it", "pbs.twimg.com", "i.imgur.com")):
+                                    cover_image_url = url
                                     break
+                                if not cover_image_url:
+                                    cover_image_url = url
 
                             result = await self.wechat_publisher.publish_daily_summary(
                                 summary_md=summary,
@@ -376,7 +383,7 @@ class HorizonOrchestrator:
             self.console.print(f"[yellow]⚠️  Headline generation failed: {e}[/yellow]")
 
         # Fallback
-        return {"zh": "今日技术速递", "en": "Today's Tech Brief"}.get(lang, "Tech Brief")
+        return {"zh": "今日快讯", "en": "Today's Briefing"}.get(lang, "Today's Briefing")
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours:

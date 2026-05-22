@@ -4,6 +4,7 @@ Workflow: material/add_material -> draft/add -> freepublish/submit -> freepublis
 Requires: verified account (微信认证), IP whitelisted, AppID + AppSecret
 """
 
+import mimetypes
 from io import BytesIO
 
 import httpx
@@ -70,6 +71,12 @@ class WeChatClient:
             )
             return resp.json()
 
+    @staticmethod
+    def _guess_mime(filename: str) -> str:
+        """Guess MIME type from filename, falling back to image/jpeg."""
+        guessed, _ = mimetypes.guess_type(filename)
+        return guessed if guessed and guessed.startswith("image/") else "image/jpeg"
+
     async def upload_content_image(
         self, file_path: str | None = None, *, data: bytes | None = None, filename: str = "image.jpg"
     ) -> dict:
@@ -78,12 +85,13 @@ class WeChatClient:
         Provide either file_path (read from disk) or data (raw bytes).
         """
         token = await self._ensure_token()
+        content_type = self._guess_mime(filename)
         async with self._client() as client:
             if data is not None:
                 resp = await client.post(
                     f"{BASE_URL}/media/uploadimg",
                     params={"access_token": token},
-                    files={"media": (filename, data, "image/jpeg")},
+                    files={"media": (filename, data, content_type)},
                 )
             elif file_path is not None:
                 with open(file_path, "rb") as f:
