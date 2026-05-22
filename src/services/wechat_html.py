@@ -37,14 +37,39 @@ def markdown_to_wechat_html(markdown_text: str) -> str:
     Returns an HTML fragment (no <html>/<body> wrapper) suitable for the
     WeChat draft/add API `content` field.
     """
-    md = markdown.Markdown(extensions=["extra", "codehilite"])
+    md = markdown.Markdown(extensions=["extra", "fenced_code"])
     raw_html = md.convert(markdown_text)
 
     soup = BeautifulSoup(raw_html, "html.parser")
 
+    _sanitize(soup)
     _apply_styles(soup)
 
     return "".join(str(child) for child in soup.children)
+
+
+def _sanitize(soup: BeautifulSoup) -> None:
+    """Remove elements/attributes that WeChat rejects."""
+    # Unwrap internal anchor links (href="#...") — WeChat rejects these
+    for tag in soup.find_all("a", href=True):
+        href = tag.get("href", "")
+        if isinstance(href, str) and href.startswith("#"):
+            tag.unwrap()
+
+    for tag in soup.find_all(True):
+        # Strip class and id — WeChat strips them anyway
+        for attr in ("class", "id"):
+            if attr in tag.attrs:
+                del tag.attrs[attr]
+
+        # Remove empty anchor tags left over after unwrapping
+        if tag.name == "a" and not tag.get_text(strip=True) and not tag.get("href"):
+            tag.decompose()
+            continue
+
+        # Unwrap div wrappers
+        if tag.name == "div":
+            tag.unwrap()
 
 
 def _apply_styles(soup: BeautifulSoup | Tag) -> None:
