@@ -155,8 +155,9 @@ class HorizonOrchestrator:
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
+                headline = await self._generate_headline(important_items, lang)
                 summarizer = DailySummarizer()
-                summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
+                summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang, headline=headline)
 
                 # Save to data/summaries/
                 summary_path = self.storage.save_daily_summary(today, summary, language=lang)
@@ -176,7 +177,7 @@ class HorizonOrchestrator:
                     front_matter = (
                         "---\n"
                         "layout: default\n"
-                        f"title: \"Horizon Summary: {today} ({lang.upper()})\"\n"
+                        f"title: \"{headline} ({lang.upper()})\"\n"
                         f"date: {today}\n"
                         f"lang: {lang}\n"
                         "---\n\n"
@@ -201,7 +202,7 @@ class HorizonOrchestrator:
                 if self.email_manager and self.config.email and self.config.email.enabled:
                     self.console.print(f"📧 Sending {lang.upper()} email summary...")
                     subscribers = self.storage.load_subscribers()
-                    subject = f"Horizon Summary ({lang.upper()}) - {today}"
+                    subject = f"{headline} ({lang.upper()}) - {today}"
                     self.email_manager.send_daily_summary(summary, subject, subscribers)
 
                 # Send webhook notification if configured
@@ -212,6 +213,7 @@ class HorizonOrchestrator:
                         all_items_count=len(all_items),
                         date=today,
                         lang=lang,
+                        headline=headline,
                         summarizer=summarizer,
                     )
 
@@ -220,13 +222,19 @@ class HorizonOrchestrator:
                     wechat_langs = self.config.wechat.languages if self.config.wechat else None
                     if wechat_langs is None or lang in wechat_langs:
                         try:
-                            headline = await self._generate_headline(important_items, lang)
+                            # Use first available source image as cover
+                            cover_image_url = ""
+                            for item in important_items:
+                                if item.metadata.get("image_url"):
+                                    cover_image_url = item.metadata["image_url"]
+                                    break
 
                             result = await self.wechat_publisher.publish_daily_summary(
                                 summary_md=summary,
                                 date=today,
                                 lang=lang,
                                 headline=headline,
+                                cover_image_url=cover_image_url,
                             )
                             if result.get("error"):
                                 self.console.print(
@@ -239,8 +247,7 @@ class HorizonOrchestrator:
                                 and self.telegram_bot
                             ):
                                 media_id = result["media_id"]
-                                lbl = headline or ({"en": "Horizon Daily", "zh": "Horizon 每日速递"}.get(lang, "Horizon Daily"))
-                                draft_title = lbl if headline else f"{lbl} - {today}"
+                                draft_title = headline
                                 digest_prefix = "每日技术资讯速览" if lang == "zh" else "Daily tech brief"
                                 draft_digest = f"{digest_prefix} — {today}"
 
@@ -610,6 +617,9 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
+                # Merge image_url if primary lacks one
+                if not primary.metadata.get("image_url") and dup.metadata.get("image_url"):
+                    primary.metadata["image_url"] = dup.metadata["image_url"]
                 self.console.print(
                     f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
                     f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"

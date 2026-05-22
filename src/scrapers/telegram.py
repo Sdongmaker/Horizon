@@ -123,6 +123,9 @@ class TelegramScraper(BaseScraper):
                 canonical_url = href
                 break
 
+        # Extract image URL from message
+        image_url = self._extract_message_image(msg_el)
+
         return ContentItem(
             id=self._generate_id("telegram", channel, msg_id),
             source_type=SourceType.TELEGRAM,
@@ -131,8 +134,24 @@ class TelegramScraper(BaseScraper):
             content=text,
             author=channel,
             published_at=published_at,
-            metadata={"msg_url": msg_url, "channel": channel},
+            metadata={"msg_url": msg_url, "channel": channel, "image_url": image_url},
         )
+
+    @staticmethod
+    def _extract_message_image(msg_el) -> str:
+        """Extract the first image URL from a Telegram message element.
+
+        Telegram t.me/s/ pages embed images as <i class="tgme_widget_message_photo"
+        style="background-image:url('...')"> rather than <img> tags.
+        """
+        photo_el = msg_el.select_one("i.tgme_widget_message_photo")
+        if not photo_el:
+            return ""
+        style = photo_el.get("style", "")
+        match = re.search(r"background-image\s*:\s*url\(['\"]?([^'\"]+?)['\"]?\)", style)
+        if match:
+            return match.group(1)
+        return ""
 
     @staticmethod
     def _make_title(text: str) -> str:

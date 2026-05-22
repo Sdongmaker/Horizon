@@ -19,7 +19,7 @@ def _pangu(text: str) -> str:
 
 LABELS = {
     "en": {
-        "header": "Horizon Daily",
+        "header": "Daily Brief",
         "source": "Source",
         "background": "Background",
         "discussion": "Discussion",
@@ -37,7 +37,7 @@ LABELS = {
         ),
     },
     "zh": {
-        "header": "Horizon 每日速递",
+        "header": "每日速递",
         "source": "来源",
         "background": "背景",
         "discussion": "社区讨论",
@@ -69,6 +69,7 @@ class DailySummarizer:
         date: str,
         total_fetched: int,
         language: str = "en",
+        headline: str = "",
     ) -> str:
         """Generate daily summary in Markdown format.
 
@@ -79,6 +80,7 @@ class DailySummarizer:
             date: Date string (YYYY-MM-DD)
             total_fetched: Total number of items fetched before filtering
             language: Output language, either "en" or "zh"
+            headline: AI-generated headline to use as the H1 header
 
         Returns:
             str: Markdown formatted summary
@@ -88,8 +90,9 @@ class DailySummarizer:
         if not items:
             return self._generate_empty_summary(date, total_fetched, labels)
 
+        header_text = headline or f"{labels['header']} - {date}"
         header = (
-            f"# {labels['header']} - {date}\n\n"
+            f"# {header_text}\n\n"
             f"> From {total_fetched} items, {len(items)} important content pieces were selected\n\n"
             "---\n\n"
         )

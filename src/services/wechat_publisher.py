@@ -9,6 +9,9 @@ import os
 from io import BytesIO
 from typing import Optional
 
+import httpx
+from bs4 import BeautifulSoup
+
 from ..models import WeChatPublishConfig
 from .wechat import WeChatClient
 from .wechat_html import markdown_to_wechat_html
@@ -183,8 +186,9 @@ class WeChatPublisher:
         date: str,
         lang: str,
         headline: str = "",
+        cover_image_url: str = "",
     ) -> dict:
-        """Full flow: cover upload → HTML conversion → draft → (publish).
+        """Full flow: cover upload → HTML conversion → image re-host → draft → (publish).
 
         Returns a dict with keys: media_id (always), publish_id on publish mode,
         or error on failure.
@@ -203,9 +207,23 @@ class WeChatPublisher:
         icon = "📱"
 
         try:
-            # 1. Upload cover image
+            # 1. Upload cover image (use source image if available)
             self.console.print(f"{icon} WeChat ({lang_label}): uploading cover image...")
-            cover_bytes = self._make_cover(date, lang)
+            cover_bytes = None
+            if cover_image_url:
+                try:
+                    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as dl_client:
+                        resp = await dl_client.get(cover_image_url)
+                        resp.raise_for_status()
+                        data = resp.content
+                        if len(data) <= 2 * 1024 * 1024:
+                            cover_bytes = data
+                except Exception as e:
+                    logger.warning("Failed to download cover image from %s: %s", cover_image_url[:80], e)
+
+            if cover_bytes is None:
+                cover_bytes = self._make_cover(date, lang)
+
             mat = await client.upload_permanent_image("cover.jpg", cover_bytes)
             thumb_media_id = mat.get("media_id")
             if not thumb_media_id:
@@ -215,6 +233,9 @@ class WeChatPublisher:
             # 2. Convert markdown to WeChat HTML
             self.console.print(f"{icon} WeChat ({lang_label}): converting markdown to HTML...")
             content_html = markdown_to_wechat_html(summary_md)
+
+            # 2.5 Re-host external images to WeChat CDN
+            content_html = await self._rehost_images(content_html, client, lang_label, icon)
 
             # 3. Create draft
             self.console.print(f"{icon} WeChat ({lang_label}): creating draft...")
@@ -278,6 +299,65 @@ class WeChatPublisher:
             self.console.print(f"[yellow]⚠️  WeChat publish ({lang_label}) failed: {e}[/yellow]\n")
             return {"error": str(e)}
 
+    async def _rehost_images(self, html: str, client: WeChatClient, lang_label: str, icon: str) -> str:
+        """Download external images and re-upload to WeChat CDN.
+
+        Finds all <img> tags with external (non-mmbiz.qpic.cn) src URLs,
+        downloads each image, uploads to WeChat via uploadimg API,
+        and replaces the src with the returned WeChat CDN URL.
+
+        Failures are logged but do not block publishing.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        imgs = soup.find_all("img", src=True)
+
+        if not imgs:
+            return html
+
+        replacements = 0
+
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as dl_client:
+            for img in imgs:
+                src = img.get("src", "")
+                if not src or "mmbiz.qpic.cn" in src:
+                    continue
+
+                try:
+                    resp = await dl_client.get(src)
+                    resp.raise_for_status()
+                    data = resp.content
+
+                    if len(data) > 2 * 1024 * 1024:
+                        logger.warning(
+                            "Image too large for WeChat uploadimg (%d bytes), skipping: %s",
+                            len(data), src[:100],
+                        )
+                        continue
+
+                    filename = src.rsplit("/", 1)[-1].split("?")[0] or "image.jpg"
+                    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                        filename += ".jpg"
+
+                    result = await client.upload_content_image(data=data, filename=filename)
+                    new_url = result.get("url")
+                    if not new_url:
+                        errcode = result.get("errcode", "?")
+                        logger.warning("WeChat uploadimg failed (errcode=%s) for %s", errcode, src[:100])
+                        continue
+
+                    img["src"] = new_url
+                    replacements += 1
+
+                except Exception as e:
+                    logger.warning("Image re-host failed for %s: %s", src[:100], e)
+                    continue
+
+        if replacements:
+            self.console.print(f"{icon} WeChat ({lang_label}): re-hosted {replacements}/{len(imgs)} images to CDN")
+            return "".join(str(child) for child in soup.children)
+
+        return html
+
     def _make_cover(self, date: str, lang: str) -> bytes:
         """Generate a branded cover image, or fall back to solid-color placeholder."""
         if not self.config.generate_cover:
@@ -330,7 +410,7 @@ def _generate_branded_cover(
     )
 
     # Title
-    title = "Horizon Daily" if lang == "en" else "Horizon 每日速递"
+    title = "Daily Brief" if lang == "en" else "每日速递"
 
     try:
         # Try system fonts first, then common Linux fallbacks
@@ -400,10 +480,10 @@ def _generate_branded_cover(
 def _get_labels(lang: str) -> dict:
     if lang == "zh":
         return {
-            "header": "Horizon 每日速递",
+            "header": "每日速递",
             "digest_prefix": "每日技术资讯速览",
         }
     return {
-        "header": "Horizon Daily",
+        "header": "Daily Brief",
         "digest_prefix": "Daily tech brief",
     }

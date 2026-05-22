@@ -70,16 +70,30 @@ class WeChatClient:
             )
             return resp.json()
 
-    async def upload_content_image(self, file_path: str) -> dict:
-        """Upload image for inline article content → returns {"url": "..."}."""
+    async def upload_content_image(
+        self, file_path: str | None = None, *, data: bytes | None = None, filename: str = "image.jpg"
+    ) -> dict:
+        """Upload image for inline article content → returns {"url": "..."}.
+
+        Provide either file_path (read from disk) or data (raw bytes).
+        """
         token = await self._ensure_token()
         async with self._client() as client:
-            with open(file_path, "rb") as f:
+            if data is not None:
                 resp = await client.post(
                     f"{BASE_URL}/media/uploadimg",
                     params={"access_token": token},
-                    files={"media": f},
+                    files={"media": (filename, data, "image/jpeg")},
                 )
+            elif file_path is not None:
+                with open(file_path, "rb") as f:
+                    resp = await client.post(
+                        f"{BASE_URL}/media/uploadimg",
+                        params={"access_token": token},
+                        files={"media": f},
+                    )
+            else:
+                raise ValueError("Either file_path or data must be provided")
             return resp.json()
 
     # ---- drafts ----

@@ -288,6 +288,8 @@ class TwitterScraper(BaseScraper):
             if len(text) > 50:
                 title_body += "..."
 
+            image_url = self._extract_image_url(item)
+
             return ContentItem(
                 id=self._generate_id(SourceType.TWITTER.value, "tweet", numeric_id),
                 source_type=SourceType.TWITTER,
@@ -306,8 +308,36 @@ class TwitterScraper(BaseScraper):
                     "is_reply": item.get("is_reply", False),
                     "in_reply_to_status_id": item.get("in_reply_to_status_id"),
                     "in_reply_to_screen_name": item.get("in_reply_to_screen_name"),
+                    "image_url": image_url,
                 },
             )
         except Exception as exc:
             logger.debug(f"Failed to parse tweet: {exc}")
             return None
+
+    @staticmethod
+    def _extract_image_url(item: dict) -> str:
+        """Extract the first image URL from a tweet."""
+        media_list = item.get("media") or []
+        if not isinstance(media_list, list):
+            media_list = []
+
+        if not media_list:
+            ee = item.get("extended_entities") or {}
+            media_list = ee.get("media") or []
+
+        if not media_list:
+            ent = item.get("entities") or {}
+            media_list = ent.get("media") or []
+
+        for m in media_list:
+            if not isinstance(m, dict):
+                continue
+            mtype = m.get("type", "")
+            if mtype and mtype != "photo":
+                continue
+            url = m.get("media_url_https") or m.get("media_url") or ""
+            if url:
+                return url
+
+        return ""

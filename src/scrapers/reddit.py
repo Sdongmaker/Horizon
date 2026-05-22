@@ -188,6 +188,8 @@ class RedditScraper(BaseScraper):
 
         content = "\n\n".join(parts)
 
+        image_url = self._extract_image_url(post)
+
         return ContentItem(
             id=self._generate_id("reddit", subtype, post_id),
             source_type=SourceType.REDDIT,
@@ -204,8 +206,33 @@ class RedditScraper(BaseScraper):
                 "is_self": is_self,
                 "flair": post.get("link_flair_text"),
                 "discussion_url": discussion_url,
+                "image_url": image_url,
             },
         )
+
+    @staticmethod
+    def _extract_image_url(post: dict) -> str:
+        """Extract the best image URL from a Reddit post."""
+        url = post.get("url", "")
+        # Direct image post
+        if url and ("i.redd.it" in url or "i.imgur.com" in url):
+            return url
+
+        # Preview images from Reddit JSON payload
+        preview = post.get("preview", {})
+        images = preview.get("images", [])
+        if images:
+            source = images[0].get("source", {})
+            src_url = source.get("url", "")
+            if src_url:
+                return src_url.replace("&amp;", "&")
+
+        # Thumbnail fallback
+        thumbnail = post.get("thumbnail", "")
+        if thumbnail and thumbnail.startswith("http"):
+            return thumbnail
+
+        return ""
 
     async def _reddit_get(self, url: str, params: dict) -> Optional[Any]:
         try:
