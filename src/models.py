@@ -323,6 +323,16 @@ class WeChatPublishConfig(BaseModel):
     languages: Optional[list[str]] = None
 
 
+class TelegramBotConfig(BaseModel):
+    """Telegram bot for WeChat draft approval workflow."""
+
+    enabled: bool = False
+    bot_token_env: str = "TELEGRAM_BOT_TOKEN"
+    chat_id_env: str = "TELEGRAM_CHAT_ID"
+    polling_interval: int = 5
+    request_timeout: int = 30
+
+
 class FilteringConfig(BaseModel):
     """Content filtering configuration."""
 
@@ -340,3 +350,4 @@ class Config(BaseModel):
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
     wechat: Optional[WeChatPublishConfig] = None
+    telegram_bot: Optional[TelegramBotConfig] = None

@@ -1,18 +1,21 @@
 """Main orchestrator coordinating the entire workflow."""
 
 import asyncio
+import signal
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict
+from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import httpx
 from rich.console import Console
 
 from .models import Config, ContentItem
 from .storage.manager import StorageManager
+from .storage.draft_registry import DraftRegistry
 from .services.email import EmailManager
 from .services.webhook import WebhookNotifier
 from .services.wechat_publisher import WeChatPublisher
+from .services.telegram_bot import TelegramBot
 from .scrapers.github import GitHubScraper
 from .scrapers.hackernews import HackerNewsScraper
 from .scrapers.rss import RSSScraper
@@ -52,12 +55,21 @@ class HorizonOrchestrator:
             if config.wechat and config.wechat.enabled
             else None
         )
+        self.draft_registry = DraftRegistry()
+        self.telegram_bot: Optional[TelegramBot] = None
+        if config.telegram_bot and config.telegram_bot.enabled:
+            self.telegram_bot = TelegramBot(
+                config.telegram_bot,
+                registry=self.draft_registry,
+                console=self.console,
+            )
 
-    async def run(self, force_hours: int = None) -> None:
+    async def run(self, force_hours: int = None, watch: bool = False) -> None:
         """Execute the complete workflow.
 
         Args:
             force_hours: Optional override for time window in hours
+            watch: If True, enter Telegram bot polling loop after pipeline completes
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
@@ -214,6 +226,36 @@ class HorizonOrchestrator:
                                     f"[yellow]⚠️  WeChat publish ({lang.upper()}) returned error: "
                                     f"{result['error']}[/yellow]\n"
                                 )
+                            # If draft mode + Telegram bot enabled, register draft for approval
+                            elif (
+                                result.get("mode") == "draft"
+                                and self.telegram_bot
+                            ):
+                                media_id = result["media_id"]
+                                labels = {"en": "Horizon Daily", "zh": "Horizon 每日速递"}
+                                lbl = labels.get(lang, "Horizon Daily")
+                                draft_title = f"{lbl} - {today}"
+                                digest_prefix = "每日技术资讯速览" if lang == "zh" else "Daily tech brief"
+                                draft_digest = f"{digest_prefix} — {today}"
+
+                                draft_id = self.draft_registry.register(
+                                    media_id=media_id,
+                                    date=today,
+                                    lang=lang,
+                                    title=draft_title,
+                                    digest=draft_digest,
+                                )
+                                self.telegram_bot.set_wechat_credentials(
+                                    self.wechat_publisher.appid,
+                                    self.wechat_publisher.secret,
+                                )
+                                await self.telegram_bot.send_approval_message(
+                                    draft_id=draft_id,
+                                    date=today,
+                                    lang=lang,
+                                    title=draft_title,
+                                    digest=draft_digest,
+                                )
                         except Exception as e:
                             self.console.print(
                                 f"[yellow]⚠️  WeChat publish ({lang.upper()}) failed: {e}[/yellow]\n"
@@ -235,6 +277,15 @@ class HorizonOrchestrator:
                         f"(in: {u.input_tokens}, out: {u.output_tokens})"
                     )
 
+            # Enter Telegram bot polling if --watch mode
+            if watch and self.telegram_bot:
+                self.console.print("")
+                await self._run_watch_mode()
+            elif watch and not self.telegram_bot:
+                self.console.print(
+                    "[yellow]⚠️  --watch mode requested but telegram_bot not configured[/yellow]"
+                )
+
         except Exception as e:
             self.console.print(f"[bold red]❌ Error: {e}[/bold red]")
 
@@ -246,6 +297,35 @@ class HorizonOrchestrator:
                 )
 
             raise
+
+    async def _run_watch_mode(self) -> None:
+        """Enter Telegram bot polling loop. Blocks until SIGTERM/SIGINT."""
+        stop_event = asyncio.Event()
+
+        def _handle_signal(signum, frame):
+            self.console.print("\n[dim]🛑 Shutting down watch mode...[/dim]")
+            stop_event.set()
+
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _handle_signal)
+            except NotImplementedError:
+                pass
+
+        poll_task = asyncio.create_task(self.telegram_bot.poll_loop())
+        stopper = asyncio.create_task(stop_event.wait())
+
+        done, _ = await asyncio.wait(
+            [poll_task, stopper],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
+        self.console.print("[dim]👋 Watch mode stopped.[/dim]")
 
     def _determine_time_window(self, force_hours: int = None) -> datetime:
         if force_hours:

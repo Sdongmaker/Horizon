@@ -116,16 +116,16 @@ class WeChatPublisher:
             logger.error(f"WeChat self-test: image upload failed - {e}")
             return {"status": "failed", "results": results}
 
-        # 3. Create a test draft
+        # 3. Create and delete a test draft
         try:
-            self.console.print("  [3/3] Creating test draft...")
+            self.console.print("  [3/4] Creating test draft...")
             test_html = markdown_to_wechat_html(
                 "**Horizon 启动自测**\n\n"
                 "这是一条由 Horizon 系统自动生成的测试草稿，用于验证微信公众号 API 连通性。\n\n"
                 "所有功能模块运行正常。"
             )
             draft = await client.create_draft(
-                title=f"Horizon 启动自测",
+                title="Horizon 启动自测",
                 content=test_html,
                 thumb_media_id=thumb_media_id,
                 author=self.config.author,
@@ -140,13 +140,25 @@ class WeChatPublisher:
                 results["draft"] = f"failed: {errmsg}"
                 logger.error(f"WeChat self-test: draft creation failed - errcode={errcode} errmsg={errmsg}")
                 return {"status": "failed", "results": results}
-            self.console.print(f"  [green]✓[/green] Test draft created → media_id: {media_id}")
+            self.console.print(f"  [green]✓[/green] Test draft created → {media_id}")
+
+            # 4. Delete test draft
+            self.console.print("  [4/4] Deleting test draft...")
+            del_result = await client.delete_draft(media_id)
+            del_errcode = del_result.get("errcode")
+            if del_errcode and del_errcode != 0:
+                errmsg = del_result.get("errmsg", str(del_result))
+                self.console.print(f"  [yellow]⚠[/yellow] Draft deletion failed: errcode={del_errcode} errmsg={errmsg}")
+                results["draft_delete"] = f"failed: {errmsg}"
+            else:
+                self.console.print(f"  [green]✓[/green] Test draft deleted")
+                results["draft_delete"] = "ok"
+
             results["draft"] = "ok"
-            results["test_media_id"] = media_id
         except Exception as e:
-            self.console.print(f"  [red]✗[/red] Draft creation failed: {e}")
+            self.console.print(f"  [red]✗[/red] Draft test failed: {e}")
             results["draft"] = f"failed: {e}"
-            logger.error(f"WeChat self-test: draft creation failed - {e}")
+            logger.error(f"WeChat self-test: draft test failed - {e}")
             return {"status": "failed", "results": results}
 
         self.console.print(f"[bold green]✅ WeChat self-test passed![/bold green]\n")

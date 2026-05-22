@@ -118,5 +118,19 @@
     "languages": null,
     "request_body": {},
     "headers": ""
+  },
+  "wechat": {
+    "enabled": false,
+    "author": "Horizon Daily",
+    "need_open_comment": false,
+    "generate_cover": true,
+    "publish_mode": "draft",
+    "languages": null
+  },
+  "telegram_bot": {
+    "enabled": false,
+    "bot_token_env": "TELEGRAM_BOT_TOKEN",
+    "chat_id_env": "TELEGRAM_CHAT_ID",
+    "polling_interval": 5
   }
 }

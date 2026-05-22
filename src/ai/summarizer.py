@@ -218,11 +218,10 @@ class DailySummarizer:
 
         sources = meta.get("sources") or []
         if sources:
-            items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
-            lines += [
-                "",
-                f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
-            ]
+            items_lines = [f"- [{s['title']}]({s['url']})" for s in sources]
+            lines.append("")
+            lines.append(f"**{labels['references']}**:")
+            lines.extend(items_lines)
 
         if discussion:
             lines.append("")
