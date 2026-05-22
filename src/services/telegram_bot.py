@@ -72,6 +72,88 @@ class TelegramBot:
         return self._wechat_client
 
     # ------------------------------------------------------------------
+    # Self-test
+    # ------------------------------------------------------------------
+
+    async def run_self_test(self) -> dict:
+        """Test Telegram bot connectivity: getMe → send test message → delete.
+
+        Returns {"status": "ok"} or {"status": "failed", "reason": ...}.
+        """
+        if not self.bot_token:
+            self.console.print("[yellow]⚠️  Telegram self-test skipped: bot token not set[/yellow]")
+            return {"status": "skipped", "reason": "bot token not set"}
+
+        self.console.print("[bold]🤖 Telegram self-test starting...[/bold]")
+        results = {}
+
+        try:
+            # 1. getMe — verify token
+            self.console.print("  [1/3] Testing bot token (getMe)...")
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{TG_BASE}{self.bot_token}/getMe")
+                data = resp.json()
+            if not data.get("ok"):
+                self.console.print(f"  [red]✗[/red] Invalid bot token: {data}")
+                return {"status": "failed", "results": {"getMe": str(data)}}
+            bot_name = data["result"]["username"]
+            self.console.print(f"  [green]✓[/green] Bot @{bot_name} connected")
+            results["getMe"] = "ok"
+        except Exception as e:
+            self.console.print(f"  [red]✗[/red] getMe failed: {e}")
+            return {"status": "failed", "results": {"getMe": str(e)}}
+
+        if not self.chat_id:
+            self.console.print("[yellow]  Telegram chat_id not set — skip message test[/yellow]")
+            self.console.print("[bold green]✅ Telegram self-test passed (token only)![/bold green]\n")
+            return {"status": "ok", "results": results}
+
+        try:
+            # 2. Send test message
+            self.console.print("  [2/3] Sending test message...")
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{TG_BASE}{self.bot_token}/sendMessage",
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": "🤖 <b>Horizon 启动自测</b>\n\nTelegram Bot 连通性测试通过。\n\n此消息将在 3 秒后自动删除。",
+                        "parse_mode": "HTML",
+                    },
+                )
+                data = resp.json()
+            if not data.get("ok"):
+                self.console.print(f"  [red]✗[/red] sendMessage failed: {data}")
+                return {"status": "failed", "results": {**results, "sendMessage": str(data)}}
+            msg_id = data["result"]["message_id"]
+            self.console.print(f"  [green]✓[/green] Test message sent → msg_id={msg_id}")
+            results["sendMessage"] = "ok"
+        except Exception as e:
+            self.console.print(f"  [red]✗[/red] sendMessage failed: {e}")
+            return {"status": "failed", "results": {**results, "sendMessage": str(e)}}
+
+        try:
+            # 3. Delete test message
+            self.console.print("  [3/3] Deleting test message...")
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{TG_BASE}{self.bot_token}/deleteMessage",
+                    json={"chat_id": self.chat_id, "message_id": msg_id},
+                )
+                data = resp.json()
+            if not data.get("ok"):
+                self.console.print(f"  [yellow]⚠[/yellow] deleteMessage failed: {data}")
+                results["deleteMessage"] = str(data)
+            else:
+                self.console.print(f"  [green]✓[/green] Test message deleted")
+                results["deleteMessage"] = "ok"
+        except Exception as e:
+            self.console.print(f"  [yellow]⚠[/yellow] deleteMessage failed: {e}")
+            results["deleteMessage"] = str(e)
+
+        self.console.print("[bold green]✅ Telegram self-test passed![/bold green]\n")
+        return {"status": "ok", "results": results}
+
+    # ------------------------------------------------------------------
     # Sending
     # ------------------------------------------------------------------
 

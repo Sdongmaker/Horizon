@@ -77,6 +77,10 @@ class HorizonOrchestrator:
         if self.wechat_publisher:
             await self.wechat_publisher.run_self_test()
 
+        # Run Telegram bot self-test on startup
+        if self.telegram_bot:
+            await self.telegram_bot.run_self_test()
+
         # Check email subscriptions if configured
         if (
             self.email_manager
