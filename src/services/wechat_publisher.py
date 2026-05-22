@@ -68,6 +68,91 @@ class WeChatPublisher:
             raise RuntimeError("WeChat access_token retrieval failed — check AppID/Secret and IP whitelist")
         return self._client
 
+    async def run_self_test(self) -> dict:
+        """Run a full startup self-test and return results.
+
+        Tests: access_token → image upload → draft creation → draft cleanup.
+        Prints each step to console so failures are visible in logs.
+        """
+        if self._disabled:
+            self.console.print("[yellow]⚠️  WeChat self-test skipped: credentials not configured[/yellow]")
+            return {"status": "skipped", "reason": "credentials not configured"}
+
+        self.console.print("[bold]📱 WeChat self-test starting...[/bold]")
+        results = {}
+
+        try:
+            # 1. Connection / token
+            self.console.print("  [1/3] Testing connection (access_token)...")
+            client = await self._get_client()
+            token = await client._ensure_token()
+            self.console.print(f"  [green]✓[/green] Token obtained → {token[:16]}...")
+            results["token"] = "ok"
+        except Exception as e:
+            self.console.print(f"  [red]✗[/red] Token failed: {e}")
+            results["token"] = f"failed: {e}"
+            logger.error(f"WeChat self-test: token failed - {e}")
+            return {"status": "failed", "results": results}
+
+        # 2. Upload test image
+        try:
+            self.console.print("  [2/3] Uploading test cover image...")
+            cover = WeChatClient.generate_cover_image()
+            mat = await client.upload_permanent_image("test_cover.jpg", cover)
+            thumb_media_id = mat.get("media_id")
+            if not thumb_media_id:
+                errcode = mat.get("errcode", "unknown")
+                errmsg = mat.get("errmsg", str(mat))
+                self.console.print(f"  [red]✗[/red] Image upload failed: errcode={errcode} errmsg={errmsg}")
+                results["image_upload"] = f"failed: {errmsg}"
+                logger.error(f"WeChat self-test: image upload failed - errcode={errcode} errmsg={errmsg}")
+                return {"status": "failed", "results": results}
+            self.console.print(f"  [green]✓[/green] Test image uploaded → {thumb_media_id[:20]}...")
+            results["image_upload"] = "ok"
+            results["test_thumb_media_id"] = thumb_media_id
+        except Exception as e:
+            self.console.print(f"  [red]✗[/red] Image upload failed: {e}")
+            results["image_upload"] = f"failed: {e}"
+            logger.error(f"WeChat self-test: image upload failed - {e}")
+            return {"status": "failed", "results": results}
+
+        # 3. Create a test draft
+        try:
+            self.console.print("  [3/3] Creating test draft...")
+            test_html = markdown_to_wechat_html(
+                "**Horizon 启动自测**\n\n"
+                "这是一条由 Horizon 系统自动生成的测试草稿，用于验证微信公众号 API 连通性。\n\n"
+                "所有功能模块运行正常。"
+            )
+            draft = await client.create_draft(
+                title=f"Horizon 启动自测",
+                content=test_html,
+                thumb_media_id=thumb_media_id,
+                author=self.config.author,
+                digest="Horizon 系统启动自测草稿",
+                need_open_comment=False,
+            )
+            media_id = draft.get("media_id")
+            if not media_id:
+                errcode = draft.get("errcode", "unknown")
+                errmsg = draft.get("errmsg", str(draft))
+                self.console.print(f"  [red]✗[/red] Draft creation failed: errcode={errcode} errmsg={errmsg}")
+                results["draft"] = f"failed: {errmsg}"
+                logger.error(f"WeChat self-test: draft creation failed - errcode={errcode} errmsg={errmsg}")
+                return {"status": "failed", "results": results}
+            self.console.print(f"  [green]✓[/green] Test draft created → media_id: {media_id}")
+            results["draft"] = "ok"
+            results["test_media_id"] = media_id
+        except Exception as e:
+            self.console.print(f"  [red]✗[/red] Draft creation failed: {e}")
+            results["draft"] = f"failed: {e}"
+            logger.error(f"WeChat self-test: draft creation failed - {e}")
+            return {"status": "failed", "results": results}
+
+        self.console.print(f"[bold green]✅ WeChat self-test passed![/bold green]\n")
+        logger.info(f"WeChat self-test passed: {results}")
+        return {"status": "ok", "results": results}
+
     async def publish_daily_summary(
         self,
         summary_md: str,
@@ -123,6 +208,13 @@ class WeChatPublisher:
             )
             media_id = draft.get("media_id")
             if not media_id:
+                errcode = draft.get("errcode", "unknown")
+                errmsg = draft.get("errmsg", str(draft))
+                logger.error(f"WeChat draft creation failed: errcode={errcode} errmsg={errmsg}")
+                self.console.print(
+                    f"[red]❌ WeChat ({lang_label}) draft creation failed: "
+                    f"errcode={errcode} errmsg={errmsg}[/red]\n"
+                )
                 return {"error": f"Draft creation failed: {draft}"}
             self.console.print(f"{icon} WeChat ({lang_label}): draft created → {media_id[:20]}...")
 
@@ -139,6 +231,13 @@ class WeChatPublisher:
             pub = await client.publish_draft(media_id)
             publish_id = pub.get("publish_id")
             if not publish_id:
+                errcode = pub.get("errcode", "unknown")
+                errmsg = pub.get("errmsg", str(pub))
+                logger.error(f"WeChat publish failed: errcode={errcode} errmsg={errmsg}")
+                self.console.print(
+                    f"[red]❌ WeChat ({lang_label}) publish failed: "
+                    f"errcode={errcode} errmsg={errmsg}[/red]\n"
+                )
                 return {"error": f"Publish failed: {pub}"}
 
             # 6. Check status

@@ -9,6 +9,7 @@ from io import BytesIO
 import httpx
 
 BASE_URL = "https://api.weixin.qq.com/cgi-bin"
+DEFAULT_TIMEOUT = 60
 
 
 class WeChatClient:
@@ -17,10 +18,13 @@ class WeChatClient:
         self.secret = secret
         self._token: str | None = None
 
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
+
     async def _ensure_token(self) -> str:
         if self._token:
             return self._token
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.get(
                 f"{BASE_URL}/token",
                 params={
@@ -47,7 +51,7 @@ class WeChatClient:
     async def upload_permanent_image(self, filename: str, data: bytes) -> dict:
         """Upload permanent image material → returns {"media_id": "...", "url": "..."}."""
         token = await self._ensure_token()
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/material/add_material",
                 params={"access_token": token, "type": "image"},
@@ -58,7 +62,7 @@ class WeChatClient:
     async def upload_content_image(self, file_path: str) -> dict:
         """Upload image for inline article content → returns {"url": "..."}."""
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             with open(file_path, "rb") as f:
                 resp = await client.post(
                     f"{BASE_URL}/media/uploadimg",
@@ -82,7 +86,7 @@ class WeChatClient:
     ) -> dict:
         """Create a draft. `thumb_media_id` is required — upload a permanent image first."""
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/draft/add",
                 params={"access_token": token},
@@ -104,7 +108,7 @@ class WeChatClient:
 
     async def get_draft(self, media_id: str) -> dict:
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/draft/get",
                 params={"access_token": token},
@@ -114,7 +118,7 @@ class WeChatClient:
 
     async def list_drafts(self, offset: int = 0, count: int = 20) -> dict:
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/draft/batchget",
                 params={"access_token": token},
@@ -124,7 +128,7 @@ class WeChatClient:
 
     async def delete_draft(self, media_id: str) -> dict:
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/draft/delete",
                 params={"access_token": token},
@@ -137,7 +141,7 @@ class WeChatClient:
     async def publish_draft(self, media_id: str) -> dict:
         """Submit a draft for publishing. Returns {"publish_id": "...", "msg_data_id": "..."}."""
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/freepublish/submit",
                 params={"access_token": token},
@@ -147,7 +151,7 @@ class WeChatClient:
 
     async def check_publish_status(self, publish_id: str) -> dict:
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/freepublish/get",
                 params={"access_token": token},
@@ -157,7 +161,7 @@ class WeChatClient:
 
     async def list_published(self, offset: int = 0, count: int = 10) -> dict:
         token = await self._ensure_token()
-        async with httpx.AsyncClient() as client:
+        async with self._client() as client:
             resp = await client.post(
                 f"{BASE_URL}/freepublish/batchget",
                 params={"access_token": token},

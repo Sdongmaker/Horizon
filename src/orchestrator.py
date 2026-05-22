@@ -61,6 +61,10 @@ class HorizonOrchestrator:
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
+        # Run WeChat self-test on startup
+        if self.wechat_publisher:
+            await self.wechat_publisher.run_self_test()
+
         # Check email subscriptions if configured
         if (
             self.email_manager
@@ -200,11 +204,16 @@ class HorizonOrchestrator:
                     wechat_langs = self.config.wechat.languages if self.config.wechat else None
                     if wechat_langs is None or lang in wechat_langs:
                         try:
-                            await self.wechat_publisher.publish_daily_summary(
+                            result = await self.wechat_publisher.publish_daily_summary(
                                 summary_md=summary,
                                 date=today,
                                 lang=lang,
                             )
+                            if result.get("error"):
+                                self.console.print(
+                                    f"[yellow]⚠️  WeChat publish ({lang.upper()}) returned error: "
+                                    f"{result['error']}[/yellow]\n"
+                                )
                         except Exception as e:
                             self.console.print(
                                 f"[yellow]⚠️  WeChat publish ({lang.upper()}) failed: {e}[/yellow]\n"
