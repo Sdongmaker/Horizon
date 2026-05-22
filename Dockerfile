@@ -14,7 +14,7 @@ COPY data ./data
 COPY .env.example .env.example
 
 # Install dependencies
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra wechat
 
 # Create volume mount points
 VOLUME ["/app/data"]
